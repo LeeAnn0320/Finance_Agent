@@ -7,7 +7,7 @@ import random
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker,Session
 from datetime import datetime ,timedelta
-from models import Base,Stock,Financial,MarketData,ResearchReport
+from database.models import Base,Stock,Financial,MarketData,ResearchReport
 
 #数据库路径
 DB_PATH=os.path.join(os.path.dirname(__file__),"finance_db")

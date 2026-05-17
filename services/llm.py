@@ -19,7 +19,7 @@ class LLMService:
         kwargs={
             "model":self.model,
             "messages":messages,
-            "temperture":tempearature,
+            "temperature":tempearature,
             "max_tokens":max_tokens
         }
         if tools:
