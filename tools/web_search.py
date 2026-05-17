@@ -2,6 +2,8 @@
 网络搜索工具tool 
 """
 import os 
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app_config import settings
 import json
 from typing import Optional,Dict,List,Any
@@ -18,24 +20,24 @@ class WebSearchTool:
     - 获取实时财经信息"""
 
     def __init__(self):
-        self.api_key=settings.BOCHAAI_API_KEY,
+        self.api_key=settings.BOCHAAI_API_KEY
         self.base_url=settings.BOCHAAI_BASE_URL
         if not self.api_key:
             print("bo cha api key未配置")
     def search(self,query:str,freshness:str="noLimit",summary:bool=True,count:int=10)->Dict[str,Any]:
-        payload = json.dumps({
+        payload = {
                 "query": query,
                 "summary": summary,
                 "count": count,
                 "freshness":freshness
-                })
+                }
 
         headers = {
             'Authorization': f'Bearer {self.api_key}',
             'Content-Type': 'application/json'
         }
         try:
-            with httpx.Client(timeout=30) as client:
+            with httpx.Client(timeout=30.0) as client:
                 response=client.post(
                     f"{self.base_url}/web-search",
                     headers=headers,
@@ -131,3 +133,23 @@ WEB_SEARCH_TOOL_SCHEMA = {
         }
     }
 }
+
+if __name__ == "__main__":
+    # 测试
+    searcher = WebSearchTool()
+    
+    queries = [
+        "贵州茅台 股价 2024",
+        "新能源汽车行业趋势",
+        "A股市场最新消息"
+    ]
+    
+    for query in queries:
+        print(f"\n搜索: {query}")
+        result = searcher.run(query, count=3)
+        print(f"成功: {result['success']}")
+        if result['success']:
+            print(f"摘要: {result['summary'][:200]}..." if result['summary'] else "无摘要")
+            print(f"结果数: {result['total_count']}")
+            for i, r in enumerate(result['results'][:3]):
+                print(f"  {i+1}. {r['title']}")
