@@ -1,0 +1,133 @@
+"""
+网络搜索工具tool 
+"""
+import os 
+from app_config import settings
+import json
+from typing import Optional,Dict,List,Any
+import httpx
+
+class WebSearchTool:
+    """网络搜索工具类 - 使用博查API"""
+
+    name = "web_search"
+    description = """搜索互联网获取最新信息。适用于：
+    - 获取最新市场动态和新闻
+    - 查询公司最新公告
+    - 搜索行业研究报告
+    - 获取实时财经信息"""
+
+    def __init__(self):
+        self.api_key=settings.BOCHAAI_API_KEY,
+        self.base_url=settings.BOCHAAI_BASE_URL
+        if not self.api_key:
+            print("bo cha api key未配置")
+    def search(self,query:str,freshness:str="noLimit",summary:bool=True,count:int=10)->Dict[str,Any]:
+        payload = json.dumps({
+                "query": query,
+                "summary": summary,
+                "count": count,
+                "freshness":freshness
+                })
+
+        headers = {
+            'Authorization': f'Bearer {self.api_key}',
+            'Content-Type': 'application/json'
+        }
+        try:
+            with httpx.Client(timeout=30) as client:
+                response=client.post(
+                    f"{self.base_url}/web-search",
+                    headers=headers,
+                    json=payload
+                )
+                if response.status_code == 200:
+                    result = response.json()
+                    return self._format_result(result, query)
+                else:
+                    return {
+                        "success": False,
+                        "error": f"API请求失败: {response.status_code}",
+                        "query": query
+                    }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "query": query
+            }
+                
+    def _format_result(self, result: Dict, query: str) -> Dict[str, Any]:
+        """
+        格式化搜索结果
+        
+        Args:
+            result: API原始结果
+            query: 搜索查询
+        
+        Returns:
+            格式化后的结果
+        """
+        formatted = {
+            "success": True,
+            "query": query,
+            "summary": "",
+            "results": [],
+            "total_count": 0
+        }
+        
+        # 提取摘要
+        if "data" in result:
+            data = result["data"]
+            
+            # 获取AI摘要
+            if "summary" in data:
+                formatted["summary"] = data["summary"]
+            
+            # 获取搜索结果
+            if "webPages" in data and "value" in data["webPages"]:
+                web_pages = data["webPages"]["value"]
+                formatted["total_count"] = len(web_pages)
+                
+                for page in web_pages:
+                    formatted["results"].append({
+                        "title": page.get("name", ""),
+                        "url": page.get("url", ""),
+                        "snippet": page.get("snippet", ""),
+                        "date": page.get("datePublished", ""),
+                        "site_name": page.get("siteName", "")
+                    })
+    
+        return formatted
+    def run(self,query:str,freshness:str="noLimit",count:int=10)->Dict[str,Any]:
+        return self.search(query=query,freshness=freshness,summary=True,count=count)
+
+# 工具函数定义（用于LangGraph）
+WEB_SEARCH_TOOL_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "web_search",
+        "description": "搜索互联网获取最新信息，包括市场动态、公司公告、行业新闻等。",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "搜索关键词，如'贵州茅台最新财报'、'新能源汽车行业趋势'"
+                },
+                "freshness": {
+                    "type": "string",
+                    "enum": ["noLimit", "day", "week", "month"],
+                    "description": "时效性过滤：noLimit(不限)、day(一天内)、week(一周内)、month(一月内)",
+                    "default": "noLimit"
+                },
+                "count": {
+                    "type": "integer",
+                    "description": "返回结果数量，默认10",
+                    "default": 10
+                }
+            },
+            "required": ["query"]
+        }
+    }
+}
