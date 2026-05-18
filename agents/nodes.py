@@ -55,7 +55,7 @@ class RouterNode():
             intent=result.get("intent","general")
             reason=result.get("reason","")
             suggested_tools=result.get("suggested_tools",[])
-        except json.JSONEncoder:
+        except json.JSONDecodeError:
             intent="general"
             resson="无法解析意图"
             suggested_tools=[]
@@ -97,7 +97,7 @@ class PlannerNode:
 }}
 
 只返回JSON，不要其他内容。"""
-        response=self.llm.chat(prompt=prompt)
+        response=self.llm.simple_chat(prompt=prompt)
         try:
             result=json.loads(response.strip())
             plan=result.get("plan",[])
@@ -156,7 +156,7 @@ class PlannerNode:
 - analysis_code: 只使用 stock_code, stock_name, market_cap 这三个字段
 
 只返回JSON，不要其他内容。"""
-        response=self.llm.chat(prompt)
+        response=self.llm.simple_chat(prompt)
 
         try:
             result=json.loads(response.strip())
@@ -165,7 +165,7 @@ class PlannerNode:
             reasoning=result.get("reasoning","")
 
 
-        except json.JSONEncoder:
+        except json.JSONDecodeError:
             #默认：简单查询 基础分析
             data_query=query
             analysis_code = """
@@ -259,6 +259,7 @@ class ExecuteNode:
                                 error_msg=prev_data.get("error","查询无结果")
                                 reasoning_steps.append(f"[警告]text2sql 未返回有效数据：{error_msg}")
                             break
+                result=tool.run(code,data)
             elif tool_name=="web_search":
                 query=params.get("query",state["query"])
                 result=tool.run(query)
@@ -299,7 +300,7 @@ class ReflectionNode:
 
         #构建反思用的提示词
 
-        results_summary=json.dumps(tool_results,ensure_ascii=False,indent=2)[:3000]  #字典变成字符串
+        results_summary=json.dumps(tool_results,ensure_ascii=False,indent=2)[:5000]  #字典变成字符串
         prompt = f"""你是一个金融分析反思专家。请审视当前的分析过程和结果，进行深度反思。
 
 用户问题: {query}
@@ -325,10 +326,10 @@ class ReflectionNode:
 }}
 
 只返回JSON。"""
-        response=self.llm.chat(prompt)
+        response=self.llm.simple_chat(prompt)
         try:
             result=json.loads(response.strip())#字符串变成字典
-            refleciton=result.get("reflection","")
+            reflection=result.get("reflection","")
             is_complete=result.get("is_complete",True)
             confidence=result.get("confidence",0.8)
             suggested_actions=result.get("suggested_actions",[])
