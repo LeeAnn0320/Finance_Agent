@@ -8,6 +8,7 @@ from datetime import datetime
 
 class FinanceAnalystState(TypedDict):
     messages:List[Dict[str,str]]
+    conversation_history:str
     query:str
     intent:str
     plan:List[str]
@@ -86,13 +87,31 @@ def create_finance_analyst_graph():
 
 class FinanceAnalystAgent:
     def __init__(self):
-        self.graph=create_finance_analyst_graph()
-        self.thread_id=0
-    def analyze(self,query:str,max_iterations:int=3)->Dict[str,Any]:
-        self.thread_id+=1
+        self.graph = create_finance_analyst_graph()
+        self.session_histories: Dict[str, List[Dict[str, str]]] = {}
 
-        initial_state = {
-            "messages": [{"role": "user", "content": query}],
+    def _get_history(self, session_id: str) -> List[Dict[str, str]]:
+        return self.session_histories.setdefault(session_id, [])
+
+    def _format_history(self, history: List[Dict[str, str]], limit: int = 8) -> str:
+        if not history:
+            return "无历史对话"
+
+        recent_messages = history[-limit:]
+        role_names = {
+            "user": "用户",
+            "assistant": "助手"
+        }
+        return "\n".join(
+            f"{role_names.get(message.get('role'), message.get('role', '未知'))}: {message.get('content', '')}"
+            for message in recent_messages
+        )
+
+    def _build_initial_state(self, query: str, max_iterations: int, session_id: str) -> Dict[str, Any]:
+        history = self._get_history(session_id)
+        return {
+            "messages": history + [{"role": "user", "content": query}],
+            "conversation_history": self._format_history(history),
             "query": query,
             "intent": "",
             "plan": [],
@@ -107,14 +126,27 @@ class FinanceAnalystAgent:
             "final_answer": "",
             "error": None
         }
-        config={"configurable":{"thread_id":str(self.thread_id)}}
+
+    def _save_turn(self, session_id: str, query: str, answer: str):
+        history = self._get_history(session_id)
+        history.extend([
+            {"role": "user", "content": query},
+            {"role": "assistant", "content": answer}
+        ])
+        self.session_histories[session_id] = history[-20:]
+
+    def analyze(self, query: str, max_iterations: int = 3, session_id: str = "default") -> Dict[str, Any]:
+        initial_state = self._build_initial_state(query, max_iterations, session_id)
+        config = {"configurable": {"thread_id": session_id}}
         try:
-            result=self.graph.invoke(input=initial_state,config=config)
+            result = self.graph.invoke(input=initial_state, config=config)
+            answer = result.get("final_answer", "")
+            self._save_turn(session_id, query, answer)
             return {
                 "success": True,
                 "query": query,
                 "intent": result.get("intent", ""),
-                "answer": result.get("final_answer", ""),
+                "answer": answer,
                 "reasoning_steps": result.get("reasoning_steps", []),
                 "reflections": result.get("reflections", []),
                 "tool_results": result.get("tool_results", []),
@@ -126,47 +158,36 @@ class FinanceAnalystAgent:
                 "query": query,
                 "error": str(e),
                 "answer": f"分析过程中出现错误: {str(e)}"
-            }     
-    def stream_analyze(self, query: str, max_iterations: int = 3):
+            }
+
+    def stream_analyze(self, query: str, max_iterations: int = 3, session_id: str = "default"):
         """
         流式执行金融分析
-        
+
         Args:
             query: 用户查询
             max_iterations: 最大迭代次数
-        
+            session_id: 会话ID，用于区分不同对话历史
+
         Yields:
             每个步骤的状态更新
         """
-        self.thread_id += 1
-        
-        initial_state = {
-            "messages": [{"role": "user", "content": query}],
-            "query": query,
-            "intent": "",
-            "plan": [],
-            "current_step": 0,
-            "tool_calls": [],
-            "tool_results": [],
-            "reasoning_steps": [],
-            "reflections": [],
-            "should_continue": True,
-            "iteration": 0,
-            "max_iterations": max_iterations,
-            "final_answer": "",
-            "error": None
-        }
-        
-        config = {"configurable": {"thread_id": str(self.thread_id)}}
-        
+        initial_state = self._build_initial_state(query, max_iterations, session_id)
+
+        config = {"configurable": {"thread_id": session_id}}
+
         try:
+            final_answer = ""
             for event in self.graph.stream(initial_state, config):
                 for node_name, state in event.items():
+                    if state.get("final_answer"):
+                        final_answer = state["final_answer"]
                     yield {
                         "node": node_name,
                         "state": state,
                         "timestamp": datetime.now().isoformat()
                     }
+            self._save_turn(session_id, query, final_answer)
         except Exception as e:
             yield {
                 "node": "error",
@@ -175,7 +196,7 @@ class FinanceAnalystAgent:
             }
 
 def analyze_query(query:str,max_iterations:int=3)->Dict[str,Any]:
-    agent=FinanceAnalystAgent    
+    agent=FinanceAnalystAgent()    
     return agent.analyze(query=query,max_iterations=max_iterations)
 
 if __name__ == "__main__":

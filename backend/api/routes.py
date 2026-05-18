@@ -4,6 +4,7 @@ FastAPI路由定义
 import os
 import sys
 import json
+import asyncio
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 
@@ -24,6 +25,12 @@ from database.models import Stock, Financial, MarketData, ResearchReport
 
 
 router = APIRouter()
+STREAM_EVENT_DELAY_SECONDS = 0.5
+SSE_HEADERS = {
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no",
+}
 
 # 全局Agent实例
 _agent = None
@@ -50,6 +57,7 @@ class ChatRequest(BaseModel):
     query: str
     max_iterations: int = 3
     stream: bool = False
+    session_id: Optional[str] = None
 
 
 class SQLRequest(BaseModel):
@@ -82,13 +90,25 @@ async def root():
         "version": "1.0.0",
         "description": "基于LangGraph的多智能体金融分析系统",
         "endpoints": {
-            "/api/chat": "主对话接口",
-            "/api/sql/query": "Text2SQL查询",
-            "/api/code/execute": "代码执行",
-            "/api/search": "网络搜索",
-            "/api/rag/search": "RAG检索",
-            "/api/stocks": "获取股票列表",
-            "/api/schema": "获取数据库结构"
+            "frontend": {
+                "/api/chat/stream": "前端主对话接口，返回SSE流式事件",
+                "/api/stocks": "前端市场概览股票列表"
+            },
+            "compatibility": {
+                "/api/chat": "非流式对话接口，也支持通过stream=true返回SSE"
+            },
+            "tool_debug": {
+                "/api/sql/query": "单独调试Text2SQL工具",
+                "/api/code/execute": "单独调试Python代码执行工具",
+                "/api/search": "单独调试网络搜索工具"
+            },
+            "data": {
+                "/api/stocks/{stock_code}": "获取单只股票详情",
+                "/api/financials/{stock_code}": "获取股票财务数据",
+                "/api/reports": "获取研报列表",
+                "/api/schema": "获取数据库结构",
+                "/api/industries": "获取行业列表"
+            }
         }
     }
 
@@ -97,28 +117,32 @@ async def root():
 async def chat(request: ChatRequest):
     """
     主对话接口 - 智能金融分析
-    
+
     支持:
     - 数据查询 (Text2SQL)
     - 深度分析 (代码执行)
     - 研报检索 (RAG)
     - 网络搜索
+    - 多轮对话记忆 (通过 session_id)
     """
     agent = get_agent()
-    
+    session_id = request.session_id or "default"
+
     if request.stream:
         # 流式响应
         async def generate():
-            for event in agent.stream_analyze(request.query, request.max_iterations):
+            for event in agent.stream_analyze(request.query, request.max_iterations, session_id):
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-        
+                await asyncio.sleep(STREAM_EVENT_DELAY_SECONDS)
+
         return StreamingResponse(
             generate(),
-            media_type="text/event-stream"
+            media_type="text/event-stream",
+            headers=SSE_HEADERS
         )
     else:
         # 普通响应
-        result = agent.analyze(request.query, request.max_iterations)
+        result = agent.analyze(request.query, request.max_iterations, session_id)
         return result
 
 
@@ -126,14 +150,17 @@ async def chat(request: ChatRequest):
 async def chat_stream(request: ChatRequest):
     """流式对话接口"""
     agent = get_agent()
+    session_id = request.session_id or "default"
     
     async def generate():
-        for event in agent.stream_analyze(request.query, request.max_iterations):
+        for event in agent.stream_analyze(request.query, request.max_iterations, session_id):
             yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+            await asyncio.sleep(STREAM_EVENT_DELAY_SECONDS)
     
     return StreamingResponse(
         generate(),
-        media_type="text/event-stream"
+        media_type="text/event-stream",
+        headers=SSE_HEADERS
     )
 
 

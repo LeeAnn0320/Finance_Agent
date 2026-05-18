@@ -7,6 +7,12 @@ from typing import Optional
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore"
+    )
+
     # API Keys（从 .env 或环境变量读取）
     DASHSCOPE_API_KEY: str = ""      # 阿里云 DashScope
     BOCHAAI_API_KEY: str = ""        # 博查搜索
@@ -37,13 +43,6 @@ class Settings(BaseSettings):
     # 代码执行器配置
     CODE_EXECUTOR_TIMEOUT: int = 30
     CODE_EXECUTOR_MAX_OUTPUT: int = 10000
-
-    class Settings(BaseSettings):
-      model_config = SettingsConfigDict(
-          env_file=".env",
-          env_file_encoding="utf-8",
-          extra="ignore"
-      )
 
 
 settings = Settings()

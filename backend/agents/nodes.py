@@ -10,6 +10,7 @@ import json
 """Agent状态 定义"""
 class AgentState():
     messages:List[Dict[str,str]]
+    conversation_history:str
     query:str
     intent:str
     plan:List[str]
@@ -31,7 +32,11 @@ class RouterNode():
         self.llm=get_llm_service()
     def __call__(self, state:AgentState)->Dict[str,Any]:
         query=state["query"]
+        history=state.get("conversation_history","无历史对话")
         prompt=f"""你是一个金融分析助手的路由器。分析用户的问题，判断应该使用哪种处理方式。
+
+历史对话:
+{history}
 
 用户问题: {query}
 
@@ -61,7 +66,7 @@ class RouterNode():
             suggested_tools=[]
         return {
             "intent":intent,
-            "reason_steps":state.get("reasoning_steps",[])+[f"[路由]识别意图:{intent},理由:{reason}"]
+            "reasoning_steps":state.get("reasoning_steps",[])+[f"[路由]识别意图:{intent},理由:{reason}"]
         }
     
 
@@ -72,6 +77,7 @@ class PlannerNode:
         """指定计划"""
         query=state["query"]
         intent=state["intent"]
+        history=state.get("conversation_history","无历史对话")
 
         if intent=="analysis":
             return self._plan_with_code(query,state)
@@ -81,6 +87,8 @@ class PlannerNode:
 
 用户问题: {query}
 识别意图: {intent}
+历史对话:
+{history}
 
 可用工具:
 1. text2sql - 将自然语言转SQL查询数据库（股票信息、财务数据、行情、研报记录）
@@ -116,7 +124,11 @@ class PlannerNode:
         }
     def _plan_with_code(self,query,state:AgentState)->Dict[str,any]:
         """分析类任务生成包含python代码的计划"""
+        history=state.get("conversation_history","无历史对话")
         prompt=f"""你是一个金融数据分析专家。用户需要进行数据分析，请制定一个包含代码的分析计划。
+
+历史对话:
+{history}
 
 用户问题: {query}
 
@@ -273,7 +285,16 @@ class ExecuteNode:
             reasoning_steps.append(f"[执行]工具{tool_name}执行完成")
         else:
             #不用调用工具 直接用LLM回答
-            response=self.llm.simple_chat(prompt=f"请回答这个金融问题:{state['query']}",system_prompt="你是一个专业的金融分析师")
+            response=self.llm.simple_chat(
+                prompt=f"""请结合历史对话回答这个金融问题。
+
+历史对话:
+{state.get('conversation_history','无历史对话')}
+
+当前问题:
+{state['query']}""",
+                system_prompt="你是一个专业的金融分析师"
+            )
             tool_results.append({
                 "step":current_step+1,
                 "tool":"llm",
@@ -283,7 +304,7 @@ class ExecuteNode:
             "current_step":current_step+1,
             "tool_results":tool_results,
             "reasoning_steps":reasoning_steps,
-            "should_contine":current_step+1<len(plan)
+            "should_continue":current_step+1<len(plan)
         }
     
 #反思节点
@@ -293,6 +314,7 @@ class ReflectionNode:
     
     def __call__(self, state:AgentState)->Dict[str,Any]:
         query=state["query"]
+        history=state.get("conversation_history","无历史对话")
         tool_results=state.get("tool_results",[])
         reflections=state.get("reflections",[])
         iteration=state.get("iteration",0)
@@ -304,6 +326,9 @@ class ReflectionNode:
         prompt = f"""你是一个金融分析反思专家。请审视当前的分析过程和结果，进行深度反思。
 
 用户问题: {query}
+
+历史对话:
+{history}
 
 当前迭代: {iteration + 1}/{max_iterations}
 
@@ -348,7 +373,7 @@ class ReflectionNode:
         if should_continue and suggested_actions:
             new_plan=self._generate_new_plan(suggested_actions=suggested_actions,state=state)
         return {
-            "reflectons":reflections,
+            "reflections":reflections,
             "iteration":iteration+1,
             "should_continue":should_continue,
             "plan":new_plan if new_plan else state.get("plan",[]),
@@ -384,6 +409,7 @@ class CriticNode:
         self.llm=get_llm_service()
     def __call__(self, state:AgentState)->Dict[str,Any]:
         query=state["query"]
+        history=state.get("conversation_history","无历史对话")
         tool_results=state.get("tool_results",[])
         reflections=state.get("reflections",[])
         reasoning_steps=state.get("reasoning_steps",[])
@@ -403,6 +429,9 @@ class CriticNode:
         prompt = f"""你是一个专业的金融分析师。根据收集到的信息，为用户提供一个全面、准确、专业的回答。
 
 用户问题: {query}
+
+历史对话:
+{history}
 
 收集到的信息:
 {chr(10).join(results_summary) if results_summary else '无额外信息'}
