@@ -57,7 +57,7 @@ class RouterNode():
             suggested_tools=result.get("suggested_tools",[])
         except json.JSONDecodeError:
             intent="general"
-            resson="无法解析意图"
+            reason="无法解析意图"
             suggested_tools=[]
         return {
             "intent":intent,
