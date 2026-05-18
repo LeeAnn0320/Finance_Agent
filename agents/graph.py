@@ -3,7 +3,7 @@ from typing import List,Literal,Dict,Any,Optional,TypedDict
 
 from langgraph.graph import StateGraph,END
 from langgraph.checkpoint.memory import MemorySaver
-from nodes import RouterNode,PlannerNode,ExecuteNode,ReflectionNode,CriticNode
+from agents.nodes import RouterNode,PlannerNode,ExecuteNode,ReflectionNode,CriticNode
 from datetime import datetime
 
 class FinanceAnalystState(TypedDict):
